@@ -5,3 +5,4 @@ numpy==2.0.0
 peewee==3.17.6
 requests==2.32.3
 beautifulsoup4==4.12.3
+peewee-db-evolve==3.7.6
