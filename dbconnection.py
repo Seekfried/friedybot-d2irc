@@ -62,13 +62,15 @@ class DatabaseConnector:
             self.__delete_all_pickupgames_without_entries()
         return result
     
-    def __get_player(self, user, chattype) -> Players:
+    def __get_player(self, user, chattype=None) -> Players:
         player = None
-
-        if chattype == "irc":
+        user = user if type(user)==str else user.name
+        if chattype is None:
+            player = Players.select().where((Players.ircName == user)|(Players.discordName == user)).first()
+        elif chattype == "irc":
             player = Players.select().where(Players.ircName == user).first()
         else:
-            player = Players.select().where(Players.discordName == user.name).first()
+            player = Players.select().where(Players.discordName == user).first()
         return player
     
     def __get_player_subscriptions(self, player) -> Subscriptions:
@@ -184,7 +186,7 @@ class DatabaseConnector:
         db.close()
         return message
 
-    def add_player_to_games(self, user, gametypes:list[str], chattype) -> tuple[bool, list[str], dict]:
+    def add_player_to_games(self, user, gametypes:list[str], chattype, recipient=None) -> tuple[bool, list[str], dict]:
         db_logger.info("add_player_to_games: user=%s, gametypes=%s, chattype=%s", user, gametypes, chattype)
         result: bool = False
         error_message = []
@@ -193,7 +195,11 @@ class DatabaseConnector:
         db.connect()
         
         #check where user added from
-        player = self.__get_player(user,chattype)
+        if recipient is not None:
+            player = self.__get_player(recipient)
+        else:        
+            player = self.__get_player(user,chattype)
+            
         try:
             #!add without gametype
             if player:
@@ -211,7 +217,13 @@ class DatabaseConnector:
                         for game in games:
                             pickentry = PickupEntries.select().where(PickupEntries.playerId == player.id, PickupEntries.gameId == game.id).first()
                             if pickentry is None:
-                                pickentry = PickupEntries(playerId=player.id, gameId=game.id, addedFrom=chattype)
+                                __addedFrom: str = chattype
+                                if recipient is not None:
+                                    if player.ircName:
+                                        __addedFrom = "irc"
+                                    else:
+                                        __addedFrom = "discord"
+                                pickentry = PickupEntries(playerId=player.id, gameId=game.id, addedFrom=__addedFrom)
                                 pickentry.save()
                                 result = True
                                 found = self.__get_found_matchtext(game)
@@ -241,7 +253,10 @@ class DatabaseConnector:
                             else:
                                 error_message.append("Already added for " + pickentry.gameId.gametypeId.title)
             else:
-                error_message.append("You need to register first (!register) to add for games!")
+                if recipient is not None:
+                    error_message.append(recipient + " needs to register first (!register) to be added for games!")
+                else:
+                    error_message.append("You need to register first (!register) to add for games!")
         except Exception as e:
             db_logger.error("Something wrong with add_player_to_games: ", e)
         db.close()
@@ -762,10 +777,7 @@ class DatabaseConnector:
         db.connect()
 
         #check where user removed from
-        if chattype:
-            player = self.__get_player(user, chattype)
-        else:
-            player = Players.select().where((Players.ircName == user)|(Players.discordName == user)).first()
+        player = self.__get_player(user, chattype)
                 
         #!remove without gametype, remove all entries and if only player removes pickup game completely
         if not gametypes:

@@ -231,6 +231,39 @@ class FriedyBot:
         else:
             self.send_notice(user, "No game added!", chattype)
 
+    def command_push(self, user, argument, chattype, isadmin):
+        # adds pickup player to games (just discord-moderators or irc-operators)
+        logger.info("command_push: user=%s, argument=%s, chattype=%s, isadmin=%s", user, argument, chattype, isadmin)
+        if isadmin:
+            result: bool = False
+            error_messages: list[str] = []
+            found_match: dict = {}
+
+            player: str = argument[1]
+            gametypes: list[str] = argument[2:]
+
+            result, error_messages, found_match = self.dbconnect.add_player_to_games(user, gametypes, chattype, player)
+            if result:
+                # match found ready to notify player 
+                if found_match:
+                    # match with teams and captains
+                    if found_match["has_teams"]:
+                        for i in range(0,len(found_match["irc"])):
+                            self.send_all(found_match["discord"][i], found_match["irc"][i])
+                    else:
+                        self.send_all(found_match["discord"], found_match["irc"])
+
+                #start the background timer to delete old pickup games
+                if self.picktimer is None or not self.picktimer.is_alive():
+                    self.picktimer = threading.Thread(target=self.start_pugtimer, daemon=True)
+                    self.picktimer.start()
+                self.build_pickuptext()
+            
+            for error_message in error_messages:
+                self.send_notice(user, error_message, chattype)
+        else:
+            self.send_notice(user, self.cmdresults["misc"]["restricted"], chattype)
+
     def command_pull(self, user, argument, chattype, isadmin):
         # removes pickup player from games (just discord-moderators or irc-operators)
         logger.info("command_pull: user=%s, argument=%s, chattype=%s, isadmin=%s", user, argument, chattype, isadmin)
